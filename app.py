@@ -89,19 +89,22 @@ def registro():
         return jsonify({'success': False, 'message': 'Error de conexion'}), 500
     
     try:
-        cursor = db.get_cursor()
-        cursor.execute("SELECT id FROM usuarios WHERE email = %s", (email,))
-        if cursor.fetchone():
+        # Verificar si el email ya existe
+        response = db.supabase.table('usuarios').select('id').eq('email', email).execute()
+        if response.data:
             return jsonify({'success': False, 'message': 'Correo ya registrado'}), 400
         
+        # Crear usuario
         hashed = generate_password_hash(password)
         user_id = str(uuid.uuid4())
-        cursor.execute(
-            "INSERT INTO usuarios (id, nombre, email, password_hash) VALUES (%s, %s, %s, %s)",
-            (user_id, nombre, email, hashed)
-        )
-        db.pg_conn.commit()
-        cursor.close()
+        
+        response = db.supabase.table('usuarios').insert({
+            'id': user_id,
+            'nombre': nombre,
+            'email': email,
+            'password_hash': hashed
+        }).execute()
+        
         return jsonify({'success': True, 'usuario_id': user_id})
     except Exception as e:
         print(f"ERROR REGISTRO: {e}")
@@ -127,10 +130,8 @@ def login():
         return jsonify({'success': False, 'message': 'Error de conexion'}), 500
     
     try:
-        cursor = db.get_cursor()
-        cursor.execute("SELECT id, nombre, password_hash FROM usuarios WHERE email = %s", (email,))
-        user = cursor.fetchone()
-        cursor.close()
+        response = db.supabase.table('usuarios').select('id, nombre, password_hash').eq('email', email).execute()
+        user = response.data[0] if response.data else None
         
         if not user or not check_password_hash(user['password_hash'], password):
             return jsonify({'success': False, 'message': 'Credenciales incorrectas'}), 401
@@ -154,10 +155,8 @@ def obtener_temas():
         return jsonify({'success': False, 'message': 'Error de conexion'}), 500
     
     try:
-        cursor = db.get_cursor()
-        cursor.execute("SELECT id, nombre, orden, descripcion FROM temas ORDER BY orden")
-        temas = cursor.fetchall()
-        cursor.close()
+        response = db.supabase.table('temas').select('*').order('orden').execute()
+        temas = response.data
         print(f"DEBUG: Se encontraron {len(temas)} temas")
         return jsonify({'success': True, 'temas': temas})
     except Exception as e:
@@ -177,13 +176,8 @@ def obtener_subtemas(tema_id):
         return jsonify({'success': False, 'message': 'Error de conexion'}), 500
     
     try:
-        cursor = db.get_cursor()
-        cursor.execute(
-            "SELECT id, tema_id, nombre, orden, contenido_html FROM subtemas WHERE tema_id = %s ORDER BY orden",
-            (tema_id,)
-        )
-        subtemas = cursor.fetchall()
-        cursor.close()
+        response = db.supabase.table('subtemas').select('*').eq('tema_id', tema_id).order('orden').execute()
+        subtemas = response.data
         return jsonify({'success': True, 'subtemas': subtemas})
     except Exception as e:
         print(f"ERROR SUBTEMAS: {e}")
@@ -202,21 +196,15 @@ def obtener_contenido(subtema_id):
         return jsonify({'success': False, 'message': 'Error de conexion'}), 500
     
     try:
-        cursor = db.get_cursor()
-        cursor.execute("SELECT id, tema_id, nombre, orden, contenido_html FROM subtemas WHERE id = %s", (subtema_id,))
-        subtema = cursor.fetchone()
+        response = db.supabase.table('subtemas').select('*').eq('id', subtema_id).execute()
+        subtema = response.data[0] if response.data else None
         
         usuario_id = request.args.get('usuario_id')
         leido = False
         if usuario_id:
-            cursor.execute(
-                "SELECT leido FROM progreso WHERE usuario_id = %s::uuid AND subtema_id = %s",
-                (usuario_id, subtema_id)
-            )
-            prog = cursor.fetchone()
+            prog_response = db.supabase.table('progreso').select('leido').eq('usuario_id', usuario_id).eq('subtema_id', subtema_id).execute()
+            prog = prog_response.data[0] if prog_response.data else None
             leido = prog['leido'] if prog else False
-        
-        cursor.close()
         
         if not subtema:
             return jsonify({'success': False, 'message': 'Subtema no encontrado'}), 404
@@ -226,7 +214,7 @@ def obtener_contenido(subtema_id):
             'subtema': subtema,
             'contenido': {
                 'titulo': subtema['nombre'],
-                'contenido_html': subtema['contenido_html'] or '<p>Contenido en construccion...</p>'
+                'contenido_html': subtema.get('contenido_html') or '<p>Contenido en construccion...</p>'
             },
             'leido': leido
         })
@@ -247,19 +235,11 @@ def obtener_flashcards(subtema_id):
         return jsonify({'success': False, 'message': 'Error de conexion'}), 500
     
     try:
-        cursor = db.get_cursor()
-        cursor.execute("SELECT nombre FROM subtemas WHERE id = %s", (subtema_id,))
-        tema_info = cursor.fetchone()
+        tema_response = db.supabase.table('subtemas').select('nombre').eq('id', subtema_id).execute()
+        tema_info = tema_response.data[0] if tema_response.data else None
         
-        cursor.execute("""
-            SELECT f.*, u.nombre as creador_nombre 
-            FROM flashcards f 
-            LEFT JOIN usuarios u ON f.creado_por = u.id
-            WHERE f.subtema_id = %s AND f.estado = 'aprobada'
-            ORDER BY f.es_oficial DESC, f.creado_en
-        """, (subtema_id,))
-        flashcards = cursor.fetchall()
-        cursor.close()
+        response = db.supabase.table('flashcards').select('*, usuarios(nombre)').eq('subtema_id', subtema_id).eq('estado', 'aprobada').order('es_oficial', desc=True).execute()
+        flashcards = response.data
         
         return jsonify({
             'success': True,
@@ -289,16 +269,17 @@ def crear_flashcard():
         return jsonify({'success': False, 'message': 'Error de conexion'}), 500
     
     try:
-        cursor = db.get_cursor()
         es_oficial = not usuario_id
         
-        cursor.execute("""
-            INSERT INTO flashcards (subtema_id, pregunta, respuesta, es_oficial, creado_por, estado)
-            VALUES (%s, %s, %s, %s, %s::uuid, %s)
-        """, (subtema_id, pregunta, respuesta, es_oficial, usuario_id if usuario_id else None, 'aprobada' if es_oficial else 'pendiente'))
+        response = db.supabase.table('flashcards').insert({
+            'subtema_id': subtema_id,
+            'pregunta': pregunta,
+            'respuesta': respuesta,
+            'es_oficial': es_oficial,
+            'creado_por': usuario_id if usuario_id else None,
+            'estado': 'aprobada' if es_oficial else 'pendiente'
+        }).execute()
         
-        db.pg_conn.commit()
-        cursor.close()
         return jsonify({'success': True, 'message': 'Flashcard creada'})
     except Exception as e:
         print(f"ERROR CREAR FLASHCARD: {e}")
@@ -317,12 +298,11 @@ def obtener_examen(subtema_id):
         return jsonify({'success': False, 'message': 'Error de conexion'}), 500
     
     try:
-        cursor = db.get_cursor()
-        cursor.execute("SELECT id, subtema_id, pregunta, tipo, opciones, correcta, nivel FROM examenes WHERE subtema_id = %s ORDER BY RANDOM()", (subtema_id,))
-        preguntas = cursor.fetchall()
+        response = db.supabase.table('examenes').select('*').eq('subtema_id', subtema_id).execute()
+        preguntas = response.data
         
         for p in preguntas:
-            if p['opciones']:
+            if p.get('opciones'):
                 try:
                     p['opciones'] = json.loads(p['opciones'])
                 except:
@@ -330,7 +310,6 @@ def obtener_examen(subtema_id):
             else:
                 p['opciones'] = None
         
-        cursor.close()
         return jsonify({'success': True, 'preguntas': preguntas, 'total': len(preguntas)})
     except Exception as e:
         print(f"ERROR EXAMEN: {e}")
@@ -356,13 +335,14 @@ def guardar_resultado():
         return jsonify({'success': False, 'message': 'Error de conexion'}), 500
     
     try:
-        cursor = db.get_cursor()
-        cursor.execute("""
-            INSERT INTO resultados_examenes (usuario_id, subtema_id, aciertos, total, porcentaje)
-            VALUES (%s::uuid, %s, %s, %s, %s)
-        """, (usuario_id, subtema_id, aciertos, total, porcentaje))
-        db.pg_conn.commit()
-        cursor.close()
+        response = db.supabase.table('resultados_examenes').insert({
+            'usuario_id': usuario_id,
+            'subtema_id': subtema_id,
+            'aciertos': aciertos,
+            'total': total,
+            'porcentaje': porcentaje
+        }).execute()
+        
         return jsonify({'success': True, 'porcentaje': round(porcentaje, 2)})
     except Exception as e:
         print(f"ERROR GUARDAR RESULTADO: {e}")
@@ -387,26 +367,22 @@ def marcar_leido(subtema_id):
         return jsonify({'success': False, 'message': 'Error de conexion'}), 500
     
     try:
-        cursor = db.get_cursor()
-        cursor.execute(
-            "SELECT id FROM progreso WHERE usuario_id = %s::uuid AND subtema_id = %s",
-            (usuario_id, subtema_id)
-        )
-        existe = cursor.fetchone()
+        # Verificar si existe
+        existe_response = db.supabase.table('progreso').select('id').eq('usuario_id', usuario_id).eq('subtema_id', subtema_id).execute()
+        existe = existe_response.data[0] if existe_response.data else None
         
         if existe:
-            cursor.execute(
-                "UPDATE progreso SET leido = TRUE, ultimo_acceso = CURRENT_TIMESTAMP WHERE usuario_id = %s::uuid AND subtema_id = %s",
-                (usuario_id, subtema_id)
-            )
+            db.supabase.table('progreso').update({
+                'leido': True,
+                'ultimo_acceso': 'now()'
+            }).eq('usuario_id', usuario_id).eq('subtema_id', subtema_id).execute()
         else:
-            cursor.execute(
-                "INSERT INTO progreso (usuario_id, subtema_id, leido) VALUES (%s::uuid, %s, TRUE)",
-                (usuario_id, subtema_id)
-            )
+            db.supabase.table('progreso').insert({
+                'usuario_id': usuario_id,
+                'subtema_id': subtema_id,
+                'leido': True
+            }).execute()
         
-        db.pg_conn.commit()
-        cursor.close()
         return jsonify({'success': True})
     except Exception as e:
         print(f"ERROR PROGRESO: {e}")
