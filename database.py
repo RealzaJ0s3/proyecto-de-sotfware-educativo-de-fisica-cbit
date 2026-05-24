@@ -12,12 +12,15 @@ class Database:
             cls._instance._initialize()
         return cls._instance
     
-    def _initialize(self):
-        url = os.environ.get('SUPABASE_URL')
-        key = os.environ.get('SUPABASE_KEY')
-        
-        print(f"DEBUG: SUPABASE_URL existe = {url is not None}")
-        print(f"DEBUG: SUPABASE_KEY existe = {key is not None}")
+  def _initialize(self):
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    
+    print(f"DEBUG: URL = {url[:30]}..." if url else "DEBUG: URL = NONE")
+    print(f"DEBUG: KEY = {key[:20]}..." if key else "DEBUG: KEY = NONE")
+    print(f"DEBUG: KEY length = {len(key) if key else 0}")
+    
+    # ... resto del código
         
         if url and key:
             try:
