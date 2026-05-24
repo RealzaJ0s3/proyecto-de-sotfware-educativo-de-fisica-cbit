@@ -5,3 +5,4 @@ better-profanity==0.7.0
 python-dotenv==1.0.1
 gunicorn==21.2.0
 supabase==2.3.4
+requests==2.31.0
