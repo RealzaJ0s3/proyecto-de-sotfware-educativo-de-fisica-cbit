@@ -17,7 +17,7 @@ async function cargarTemas() {
     const lista = document.getElementById('tema-list');
     
     try {
-        const res = await fetch('api/temas');
+        const res = await fetch('/api/temas');
         const data = await res.json();
         
         if (!data.success || !data.temas.length) {
