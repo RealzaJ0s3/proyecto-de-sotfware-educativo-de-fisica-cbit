@@ -1,12 +1,10 @@
 import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from supabase import create_client
 import traceback
-
 
 class Database:
     _instance = None
-    pg_conn = None
+    supabase = None
     
     def __new__(cls):
         if cls._instance is None:
@@ -15,52 +13,29 @@ class Database:
         return cls._instance
     
     def _initialize(self):
-        db_url = os.getenv('DATABASE_URL')
-        print(f"DEBUG: DATABASE_URL existe = {db_url is not None}")
+        url = os.environ.get('SUPABASE_URL')
+        key = os.environ.get('SUPABASE_KEY')
         
-        if db_url:
+        print(f"DEBUG: SUPABASE_URL existe = {url is not None}")
+        print(f"DEBUG: SUPABASE_KEY existe = {key is not None}")
+        
+        if url and key:
             try:
-                self.pg_conn = psycopg2.connect(db_url)
-                print("✅ PostgreSQL conectado exitosamente")
+                self.supabase = create_client(url, key)
+                print("✅ Supabase conectado exitosamente")
             except Exception as e:
-                print(f"❌ ERROR conectando a PostgreSQL: {e}")
+                print(f"❌ ERROR conectando a Supabase: {e}")
                 traceback.print_exc()
                 raise
         else:
-            print("❌ ERROR: DATABASE_URL no encontrada")
-            raise Exception("DATABASE_URL no configurada")
+            print("❌ ERROR: SUPABASE_URL o SUPABASE_KEY no encontradas")
+            raise Exception("Credenciales de Supabase no configuradas")
     
     def get_cursor(self):
-        if not self.pg_conn:
-            raise Exception("No hay conexion PostgreSQL")
-        return self.pg_conn.cursor(cursor_factory=RealDictCursor)
+        return None
     
     def execute_query(self, query, params=None):
-        if not self.pg_conn:
-            return None
-        try:
-            cursor = self.pg_conn.cursor(cursor_factory=RealDictCursor)
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            
-            if query.strip().upper().startswith('SELECT'):
-                result = cursor.fetchall()
-            else:
-                self.pg_conn.commit()
-                result = True
-            
-            cursor.close()
-            return result
-        except Exception as e:
-            print(f"Error en query: {e}")
-            self.pg_conn.rollback()
-            return None
+        return None
     
     def close(self):
-        if self.pg_conn:
-            self.pg_conn.close()
-
-
-
+        pass
