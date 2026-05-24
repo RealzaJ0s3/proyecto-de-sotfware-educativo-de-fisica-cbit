@@ -1,6 +1,5 @@
 import os
-from supabase import create_client
-import traceback
+import requests
 
 class Database:
     _instance = None
@@ -13,20 +12,30 @@ class Database:
         return cls._instance
     
     def _initialize(self):
-        # PRUEBA: Poner credenciales directamente
-        url = "https://nyihvqzyusipbtynmpzh.supabase.co"
-        key = "sb_publishable_wyN3Jd33ZjblZ3L_WD8FOg_4ZgucK-f"
+        self.url = os.environ.get("SUPABASE_URL")
+        self.key = os.environ.get("SUPABASE_KEY")
         
-        print(f"DEBUG: URL = {url}")
-        print(f"DEBUG: KEY = {key[:20]}...")
+        print(f"DEBUG: URL = {self.url}")
+        print(f"DEBUG: KEY = {self.key[:20]}...")
+        
+        # Probar con requests directamente
+        test_url = f"{self.url}/rest/v1/temas?select=*"
+        headers = {
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}"
+        }
         
         try:
-            self.supabase = create_client(url, key)
-            print("✅ Supabase conectado exitosamente")
+            response = requests.get(test_url, headers=headers)
+            print(f"DEBUG: Status code = {response.status_code}")
+            print(f"DEBUG: Response = {response.text[:100]}")
+            
+            if response.status_code == 200:
+                print("✅ Conexion exitosa con requests")
+            else:
+                print(f"❌ Error: {response.status_code}")
         except Exception as e:
-            print(f"❌ ERROR conectando a Supabase: {e}")
-            traceback.print_exc()
-            raise
+            print(f"❌ ERROR: {e}")
     
     def get_cursor(self):
         return None
