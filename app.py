@@ -64,7 +64,14 @@ PALABRAS_CLAVE = {
 
 def get_db():
     if Database:
-        return Database()
+        db = Database()
+        if db is None:
+            print("ERROR: Database() devolvio None")
+            return None
+        if db.supabase is None:
+            print("ERROR: db.supabase es None")
+            return None
+        return db
     return None
 
 
